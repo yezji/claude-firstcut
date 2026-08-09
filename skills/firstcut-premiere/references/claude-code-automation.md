@@ -26,10 +26,12 @@ python scripts/ingest.py <folder> -o sources.json
 For each source:
 
 ```
-python scripts/transcribe.py <file> --language ko -o transcript_<id>.json --srt-out subs_<id>.srt
+python scripts/transcribe.py <file> --language ko -o transcript_<id>.json --srt-out subs_<id>.srt --vocab-file glossary.txt
 ```
 
 Run sequentially with progress reports in Korean ("3/7번째 파일 전사 중, 예상 2분"). Model-download failures: see SKILL.md.
+
+After transcription, sample frames from long silences (`sample_frames.py --from-transcript ... --min-dur 3.0`) and view them before judgment — silent spans may be B-roll or product shots, never auto-cut them.
 
 ## 3–5. Judgment → questions → cutlist
 

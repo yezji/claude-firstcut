@@ -14,7 +14,7 @@ python scripts/ingest.py <folder> -o sources.json
 Absolute paths → automatic media linking on import. Show the discovered list, ask about exclusions, report warnings.
 
 ## 2–5. Transcribe → summarize/recommend → judge → cutlist
-Per SKILL.md. sources array goes into the cutlist as-is.
+Per SKILL.md. sources array goes into the cutlist as-is. After transcription, run sample_frames.py on silences ≥ 3s and view the frames before any judgment — silent spans may be visual content, never auto-cut them.
 
 ## 6. Build FCPXML — save to the user's filesystem
 ```

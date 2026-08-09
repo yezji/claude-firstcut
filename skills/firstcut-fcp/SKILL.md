@@ -5,7 +5,7 @@ description: FirstCut(퍼스트컷) — 영상 초벌컷 편집기 (파이널컷
 
 # FirstCut — Final Cut Pro edition
 
-Content-based rough cut with a non-destructive FCPXML handoff to Final Cut Pro. Core principles (transcript as editing surface / three-layer separation / no cuts before approval / no rendering) and sources: `references/repo-patterns.md`.
+Content-based rough cut with a non-destructive FCPXML handoff to Final Cut Pro. Core principles (transcript-first with contact-sheet frames for silent spans / three-layer separation / no cuts before approval / no rendering) and sources: `references/repo-patterns.md`.
 
 ## Language policy (token economy)
 
@@ -34,13 +34,16 @@ Gather inputs → Transcribe → 3-way judgment → Ask about ambiguous spans �
 ### 1. Gather inputs
 - Footage: folder → `scripts/ingest.py`; single file → `scripts/probe.py`
 - Criteria: no open-ended questions. Use `references/editing-questions.md` verbatim — pre-transcription 2 items: filler intensity (mild/normal/aggressive with examples) and target length. Skip already-answered items. Script (optional) boosts accuracy.
-- Fixed rules (don't ask): cut silences ≥ 0.8s / cut NG utterances / duplicate takes prefer the last (classify as candidate).
+- Fixed rules (don't ask): cut speech-gap silences ≥ 0.8s **between utterances only** / cut NG utterances / duplicate takes prefer the last (classify as candidate).
+- **Silence ≠ cuttable**: B-roll, product shots, scenery, demos, intentional pauses carry no speech but are often the best footage. Long silences follow the visual-check rule below.
 - Multiple files → ask about structure: sequential parts or repeated takes.
 
 ### 2. Transcribe (Claude does it)
 ```
-python scripts/transcribe.py <video> --language ko -o transcript.json --srt-out subs.srt
+python scripts/transcribe.py <video> --language ko -o transcript.json --srt-out subs.srt --vocab-file glossary.txt
 ```
+
+**Glossary first**: proper nouns from the script if provided, else Question C (skippable) → glossary.txt → biases Whisper (initial_prompt/hotwords). **Post-correction name loop**: after transcribing — ① detect variant clusters of glossary terms AND unlisted suspected person names (same name spelled differently across the video); ② confirm canonical spellings with one batched Korean question (occurrence counts shown, "다 맞아요" accepted); ③ apply deterministically via `python scripts/apply_glossary.py --fix "wrong=right" transcript.json subs.srt` (corrects text + word arrays + SRT cues, longest-first, per-term counts, saves corrections.json); ④ append confirmed names to glossary.txt for future runs, and report the summary.
 faster-whisper word timestamps (auto-install). The `--srt-out` SRT ships with the deliverables — usable via File → Import → Captions; note (in Korean) that timecodes are source-based and `/firstcut-subs` regenerates final subtitles after the lock. Model download blocked → the script prints two remedies (allow huggingface.co, or attach an SRT via `--srt`); relay in Korean.
 
 ### 2.5. Content summary and recommendation (mandatory, before judgment)
@@ -48,8 +51,10 @@ Claude now knows the content. Follow the "after transcription" procedure in `ref
 
 ### 3. 3-way judgment (core)
 - **keep**: main speech, script-matching, essential
-- **cut**: over-threshold silence, NG utterances, clearly superseded earlier takes, setup noise
+- **cut**: short speech-gap silence, NG utterances, clearly superseded earlier takes, setup noise
 - **candidate**: everything uncertain — take comparisons needing eyes, flowing ad-libs, reactions, risky mid-sentence fillers, valuable-but-over-length spans
+
+**Silent spans ≥ 3s: mandatory visual check** — `python scripts/sample_frames.py <video> --from-transcript transcript.json --min-dur 3.0 -o frames/` produces labeled **contact sheets** (~9 spans per image, ~700 tokens; escalate ambiguous ones with `--span START END`). View them: meaningful visuals → keep ("비주얼 컷 - ..."), unclear → candidate ("무음이지만 화면 확인 필요"), genuinely dead → cut. Surface discovered visual spans in the Step 2.5 summary.
 
 No overconfidence: wrong cuts cost a full re-review; candidates cost 7 seconds. One-line Korean reason per span.
 

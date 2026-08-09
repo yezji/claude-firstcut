@@ -11,9 +11,12 @@ Regenerate final subtitles (SRT) matched to the locked, edited timeline.
    - Promoted candidates → flip decision candidate → keep in cutlist.json.
      Discarded ones stay as-is.
    - If cut boundaries moved significantly, update those keep start/end too.
-3. Run the skill's (firstcut-premiere or firstcut-fcp) scripts/remap_subs.py:
+3. If corrections.json exists from the editing session, apply it to the source
+   SRT(s) first via scripts/apply_glossary.py --fix-file corrections.json <srt...>
+   so name/term fixes carry into the final subtitles.
+4. Run the skill's (firstcut-premiere or firstcut-fcp) scripts/remap_subs.py:
    python scripts/remap_subs.py cutlist.json --srt subs.srt -o final_subs.srt
    (multi-source: repeat --srt <source_id>=<file>)
-4. Save final_subs.srt to the user's filesystem, tell them where it is,
+5. Save final_subs.srt to the user's filesystem, tell them where it is,
    and give a one-line Korean caption-import instruction for their NLE.
 Never ask the user to type commands. Reason in English; user-facing output in Korean.

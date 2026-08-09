@@ -36,11 +36,28 @@ Candidate policy per intensity: mild keeps all mid-sentence fillers; normal mark
 
 For options 2–4: content removed for length that is still valuable must become candidate, never silent deletion.
 
+### Question C. Domain glossary (optional — ask once, skippable)
+
+Whisper mis-hears proper nouns, brand names, and jargon. If a script was
+provided, extract proper nouns from it automatically and skip this question.
+Otherwise ask once (Korean), and accept "없어요/스킵":
+
+> 영상에 자주 나오는 브랜드명·전문용어·사람 이름이 있나요?
+> 받아쓰기 정확도가 올라가요. (예: "상하, 이자벨 마랑, 코닥 포트라")
+> 없거나 모르면 "없어요"라고 하셔도 됩니다.
+
+Person names deserve extra attention — even unlisted ones get caught later:
+the post-transcription name loop (SKILL.md) detects inconsistently-spelled
+name candidates and confirms them with the user, so missing one here is OK.
+
+Save collected terms to `glossary.txt` (one per line) next to the cutlist for
+reuse across re-runs, and pass it to transcription via `--vocab-file`.
+
 ## After transcription — content-based recommendation (this skill's differentiator)
 
 Claude now knows the content. Before 3-way judgment, always show the structure and confirm direction:
 
-1. **Content-block summary**: 3–7 numbered blocks with rough durations.
+1. **Content-block summary**: 3–7 numbered blocks with rough durations. **Silent visual spans found via frame sampling are blocks too** — list them so the user knows they were seen, not silently cut (e.g. "⑥ 무음 비주얼 컷 — 제품 클로즈업으로 보임 (40초 지점, 8초)").
    > 전사해 보니 이런 구성이에요 (원본 12분):
    > ① 인사와 근황 (1분 30초)
    > ② 주제 소개 (3분)

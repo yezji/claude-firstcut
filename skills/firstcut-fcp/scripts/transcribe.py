@@ -61,7 +61,7 @@ def detect_silences(media, threshold_db=-35, min_dur=0.8):
     return silences
 
 
-def whisper_transcribe(media, language=None, model_size="small"):
+def whisper_transcribe(media, language=None, model_size="small", vocab=None):
     try:
         from faster_whisper import WhisperModel
     except ImportError:
@@ -79,17 +79,23 @@ def whisper_transcribe(media, language=None, model_size="small"):
             model = WhisperModel(model_size, device="cpu", compute_type="int8")
         except Exception as e:
             sys.exit(
-                "Whisper model download failed (huggingface.co likely blocked).
-"
-                "Two remedies:
-"
-                "  1) Add huggingface.co to allowed domains in network egress settings, then retry
-"
-                "  2) Provide an SRT from the NLE's auto-transcribe via --srt
-"
+                "Whisper model download failed (huggingface.co likely blocked).\n"
+                "Two remedies:\n"
+                "  1) Add huggingface.co to allowed domains in network egress settings, then retry\n"
+                "  2) Provide an SRT from the NLE auto-transcribe via --srt\n"
                 f"Original error: {e}")
-        segs, _ = model.transcribe(wav, language=language, word_timestamps=True,
-                                   vad_filter=True)
+        kwargs = dict(language=language, word_timestamps=True, vad_filter=True)
+        if vocab:
+            # Bias decoding toward domain terms: initial_prompt is broadly
+            # supported; hotwords exists on newer faster-whisper builds.
+            prompt = "다음 용어가 등장할 수 있다: " + ", ".join(vocab)
+            kwargs["initial_prompt"] = prompt
+            try:
+                segs, _ = model.transcribe(wav, hotwords=" ".join(vocab), **kwargs)
+            except TypeError:  # hotwords unsupported on this version
+                segs, _ = model.transcribe(wav, **kwargs)
+        else:
+            segs, _ = model.transcribe(wav, **kwargs)
         segments = []
         for s in segs:
             words = [{"w": w.word.strip(), "s": round(w.start, 3), "e": round(w.end, 3)}
@@ -142,6 +148,11 @@ if __name__ == "__main__":
     ap.add_argument("-o", "--output", default="transcript.json")
     ap.add_argument("--srt-out", default=None,
                     help="also write the transcript as a subtitle SRT (NLE captions)")
+    ap.add_argument("--vocab", default=None,
+                    help="comma-separated domain terms/brand names/proper nouns "
+                         "to bias recognition (initial_prompt + hotwords)")
+    ap.add_argument("--vocab-file", default=None,
+                    help="text file, one term per line (merged with --vocab)")
     args = ap.parse_args()
 
     result = {"segments": [], "silences": []}
@@ -151,7 +162,14 @@ if __name__ == "__main__":
         if args.srt:
             result["segments"] = parse_srt(args.srt)
         elif args.media:
-            result["segments"] = whisper_transcribe(args.media, args.language, args.model)
+            vocab = []
+            if args.vocab:
+                vocab += [v.strip() for v in args.vocab.split(",") if v.strip()]
+            if args.vocab_file:
+                vocab += [l.strip() for l in open(args.vocab_file, encoding="utf-8")
+                          if l.strip()]
+            result["segments"] = whisper_transcribe(args.media, args.language,
+                                                    args.model, vocab or None)
         else:
             sys.exit("Either --srt or a media file is required.")
 

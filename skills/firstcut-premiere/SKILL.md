@@ -7,7 +7,7 @@ description: FirstCut(퍼스트컷) — 영상 초벌컷 편집기 (프리미어
 
 Performs a content-based rough cut of raw footage and hands off a non-destructive FCP7 XML timeline to Premiere Pro. Core principles and their sources: `references/repo-patterns.md`.
 
-1. **The LLM reads the video, it never watches it.** The transcript is the editing surface. Cuts land on speech boundaries and silence gaps. (video-use)
+1. **Transcript-first, frames-on-demand.** The transcript is the primary editing surface; cuts land on speech boundaries and silence gaps. But silent spans are never judged blind — contact-sheet frames are viewed before classifying them. Reading, plus looking only where reading fails. (video-use)
 2. **Three-layer separation.** Silence detection is math (ffmpeg), transcription is Whisper, and only editorial judgment is LLM work — text only, never media. (Ambar)
 3. **Never cut before approval.** Report the analysis, ask about ambiguous spans, generate the timeline only after confirmation. (auto-cut-agent)
 4. **No rendering.** Output is an XML timeline; final judgment and polish happen in Premiere.
@@ -45,13 +45,31 @@ Gather inputs → Transcribe → 3-way judgment → Ask about ambiguous spans �
 - **Editing criteria**: never ask open-ended "describe your editing preferences". Use the option-based questions in `references/editing-questions.md` verbatim — pre-transcription: filler-removal intensity (mild/normal/aggressive, with examples) and target length (trim-only/half/custom/short-form). Skip anything the user already answered.
 - **Script/screenplay** (optional): if provided, script-matching mode greatly improves accuracy.
 
-Fixed rules (no need to ask): cut silences ≥ 0.8s / cut NG utterances ("다시 갈게요" and similar) / for duplicate takes prefer the last one (but classify as candidate for confirmation).
+Fixed rules (no need to ask): cut speech-gap silences ≥ 0.8s **that sit between utterances** / cut NG utterances ("다시 갈게요" and similar) / for duplicate takes prefer the last one (but classify as candidate for confirmation).
+
+**Silence ≠ cuttable.** A span with no speech can still be the most valuable footage — B-roll, product shots, scenery, demonstrations, intentional pauses, comedic beats. The silence rule above applies only to short dead air between sentences. Long silences follow the visual-check rule in Step 3.
 
 ### Step 2: Transcribe (Claude does it)
 
 ```
-python scripts/transcribe.py <video> --language ko -o transcript.json --srt-out subs.srt
+python scripts/transcribe.py <video> --language ko -o transcript.json --srt-out subs.srt --vocab-file glossary.txt
 ```
+
+**Glossary first.** Build `glossary.txt` before transcribing: proper nouns extracted from the user's script if provided, else Question C in editing-questions.md (skippable). It biases Whisper via initial_prompt/hotwords.
+
+**Post-correction pass (after transcription, before judgment) — the name loop.** Whisper garbles proper nouns and renders the same person's name differently across a video ("세훈/새훈/세 훈"). Run this loop:
+
+1. **Detect (Claude, LLM-strength):** scan the transcript for (a) phonetically-similar variants of glossary terms, and (b) *unlisted* suspected names — recurring tokens that look like person names but appear with inconsistent spellings. Cluster the variants.
+2. **Confirm (one batched Korean question):** show each cluster with its occurrence count and ask for the canonical spelling; let the user answer per item or "다 맞아요":
+   > 받아쓰기에서 확인이 필요한 이름/용어가 있어요:
+   > ① "새훈 / 새 훈"으로 들리는 이름이 7번 나와요 → 정확한 표기는? (예: 세훈)
+   > ② "아이자벨 마랑" 2번 → "이자벨 마랑"이 맞을까요?
+3. **Apply (deterministic):**
+   ```
+   python scripts/apply_glossary.py --fix "새훈=세훈" --fix "새 훈=세훈" transcript.json subs.srt
+   ```
+   It corrects transcript text + word arrays + all SRT cue lines (never timecodes), longest-first, reports per-term counts, flags zero-hit terms, and saves corrections.json for reuse.
+4. **Persist:** append confirmed names to glossary.txt so re-transcriptions and future sessions get them right from the start. Report the correction summary to the user.
 
 ffmpeg audio extraction + faster-whisper word timestamps (auto-installs if missing). `--srt-out` also produces a subtitle SRT — include it in the final deliverables; it imports directly as Premiere captions. Note to the user (in Korean) that its timecodes are source-based and that `/firstcut-subs` will regenerate final subtitles after the cut is locked. Subtitle lines are split at word timestamps for on-screen readability.
 
@@ -70,8 +88,18 @@ Claude now knows the content. Do not judge yet. Follow the "after transcription"
 Classify every span of transcript.json:
 
 - **keep**: main-body speech, matches the script, essential to flow
-- **cut**: silence over threshold, NG utterances, an earlier take clearly superseded by a later one, setup noise
+- **cut**: short speech-gap silence, NG utterances, an earlier take clearly superseded by a later one, setup noise
 - **candidate**: anything uncertain goes here. Duplicate takes whose winner can't be picked from text alone (tone/expression require watching), off-script ad-libs that flow well, laughter/reactions, mid-sentence fillers whose removal might cause a jump, spans that should go for length but are content-valuable
+
+**Silent spans ≥ 3s: mandatory visual check before classification.** Transcript-blindness is this pipeline's known weakness — never classify a long silence as cut without looking:
+
+```
+python scripts/sample_frames.py <video> --from-transcript transcript.json --min-dur 3.0 -o frames/
+```
+
+This produces **contact sheets** — one labeled grid image per ~9 spans (~700 tokens each), not per-span frame sets. View the sheet(s) to triage everything at once; escalate only spans the sheet can't settle with `--span START END` (3 detailed frames). This keeps visual checking ~90% cheaper than per-span sampling.
+
+View the sheet frames. Meaningful visuals (B-roll, product close-up, scenery, on-screen action, demonstration) → **keep** with a Korean label like "비주얼 컷 - 제품 클로즈업"; unclear or borderline (static face, ambiguous pause) → **candidate** with reason "무음이지만 화면 확인 필요"; genuinely dead (setup, black, frozen waiting) → cut. Include discovered visual spans in the Step 2.5 content-block summary so the user knows they exist.
 
 **No overconfidence.** A wrong cut forces the user to re-review the whole source; a candidate costs 7 seconds to check. Record a one-line Korean reason per span (it becomes the clip name).
 
